@@ -34,3 +34,13 @@ export async function fetchCategories(): Promise<string[]> {
   const res = await fetch(`${BASE}/games/categories`);
   return res.json();
 }
+
+export async function createGame(game: Omit<BoardGame, "id">): Promise<BoardGame> {
+  const res = await fetch(`${BASE}/games`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(game),
+  });
+  if (!res.ok) throw new Error("Failed to add game");
+  return res.json();
+}
