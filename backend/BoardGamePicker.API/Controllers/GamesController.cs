@@ -10,48 +10,52 @@ namespace BoardGamePicker.API.Controllers;
 [Route("api/[controller]")]
 public class GamesController(AppDbContext db) : ControllerBase
 {
+    private IQueryable<BoardGame> ApplyFilters(IQueryable<BoardGame> query, GameFilterDto filter)
+    {
+        if (filter.PlayerCount.HasValue)
+        {
+            var pc = filter.PlayerCount.Value;
+            query = query.Where(g => g.MinPlayers <= pc && g.MaxPlayers >= pc);
+        }
+
+        if (filter.MaxAge.HasValue)
+        {
+            var age = filter.MaxAge.Value;
+            query = query.Where(g => g.MinAge <= age);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Type))
+        {
+            var type = filter.Type;
+            query = query.Where(g => g.Type == type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Category))
+        {
+            var category = filter.Category;
+            query = query.Where(g => g.Category == category);
+        }
+
+        if (filter.MaxRuntime.HasValue)
+        {
+            var runtime = filter.MaxRuntime.Value;
+            query = query.Where(g => g.MinRuntime <= runtime);
+        }
+
+        return query;
+    }
+
     [HttpGet]
     public async Task<ActionResult<IEnumerable<BoardGame>>> GetGames([FromQuery] GameFilterDto filter)
     {
-        var query = db.BoardGames.Where(g => g.IsOwned);
-
-        if (filter.PlayerCount.HasValue)
-            query = query.Where(g => g.MinPlayers <= filter.PlayerCount && g.MaxPlayers >= filter.PlayerCount);
-
-        if (filter.MaxAge.HasValue)
-            query = query.Where(g => g.MinAge <= filter.MaxAge);
-
-        if (!string.IsNullOrWhiteSpace(filter.Type))
-            query = query.Where(g => g.Type == filter.Type);
-
-        if (!string.IsNullOrWhiteSpace(filter.Category))
-            query = query.Where(g => g.Category == filter.Category);
-
-        if (filter.MaxRuntime.HasValue)
-            query = query.Where(g => g.MinRuntime <= filter.MaxRuntime);
-
+        var query = ApplyFilters(db.BoardGames.Where(g => g.IsOwned), filter);
         return await query.OrderBy(g => g.BggRank).ToListAsync();
     }
 
     [HttpGet("random")]
     public async Task<ActionResult<BoardGame>> GetRandomGame([FromQuery] GameFilterDto filter)
     {
-        var query = db.BoardGames.Where(g => g.IsOwned);
-
-        if (filter.PlayerCount.HasValue)
-            query = query.Where(g => g.MinPlayers <= filter.PlayerCount && g.MaxPlayers >= filter.PlayerCount);
-
-        if (filter.MaxAge.HasValue)
-            query = query.Where(g => g.MinAge <= filter.MaxAge);
-
-        if (!string.IsNullOrWhiteSpace(filter.Type))
-            query = query.Where(g => g.Type == filter.Type);
-
-        if (!string.IsNullOrWhiteSpace(filter.Category))
-            query = query.Where(g => g.Category == filter.Category);
-
-        if (filter.MaxRuntime.HasValue)
-            query = query.Where(g => g.MinRuntime <= filter.MaxRuntime);
+        var query = ApplyFilters(db.BoardGames.Where(g => g.IsOwned), filter);
 
         var count = await query.CountAsync();
         if (count == 0) return NotFound("No games match the selected criteria.");
