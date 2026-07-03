@@ -35,13 +35,26 @@ app.Run();
 
 static string GetConnectionString()
 {
-    // Railway (and most cloud providers) supply a DATABASE_URL in URI format:
-    // postgresql://user:password@host:port/dbname
+    // Option 1: DATABASE_URL in postgresql:// URI format (Railway, Heroku, Render)
     var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-    if (string.IsNullOrEmpty(databaseUrl))
-        return "Host=localhost;Database=boardgamepicker;Username=postgres;Password=postgres";
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        var uri = new Uri(databaseUrl);
+        var userInfo = uri.UserInfo.Split(':');
+        return $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={userInfo[0]};Password={Uri.UnescapeDataString(userInfo[1])};SSL Mode=Require;Trust Server Certificate=true";
+    }
 
-    var uri = new Uri(databaseUrl);
-    var userInfo = uri.UserInfo.Split(':');
-    return $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={userInfo[0]};Password={Uri.UnescapeDataString(userInfo[1])};SSL Mode=Require;Trust Server Certificate=true";
+    // Option 2: Individual PG* variables (also provided by Railway's Postgres plugin)
+    var pgHost = Environment.GetEnvironmentVariable("PGHOST");
+    if (!string.IsNullOrEmpty(pgHost))
+    {
+        var pgPort = Environment.GetEnvironmentVariable("PGPORT") ?? "5432";
+        var pgDb = Environment.GetEnvironmentVariable("PGDATABASE") ?? "railway";
+        var pgUser = Environment.GetEnvironmentVariable("PGUSER") ?? "postgres";
+        var pgPass = Environment.GetEnvironmentVariable("PGPASSWORD") ?? "";
+        return $"Host={pgHost};Port={pgPort};Database={pgDb};Username={pgUser};Password={pgPass};SSL Mode=Require;Trust Server Certificate=true";
+    }
+
+    // Local development fallback
+    return "Host=localhost;Database=boardgamepicker;Username=postgres;Password=postgres";
 }
