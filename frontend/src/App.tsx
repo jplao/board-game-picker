@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchTypes, fetchCategories, fetchRandomGame, fetchGames, createGame } from "./api";
 import type { BoardGame, GameFilter } from "./types";
 import "./App.css";
@@ -43,18 +43,19 @@ export default function App() {
   const [addSuccess, setAddSuccess] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
 
-  useEffect(() => {
+  const refreshMeta = () => {
     fetchTypes().then(setTypes).catch(console.error);
     fetchCategories().then(setCategories).catch(console.error);
-  }, []);
+  };
+
+  useEffect(refreshMeta, []);
 
   async function handlePickGame() {
     setPickLoading(true);
     setPickError(null);
     setRandomGame(null);
     try {
-      const game = await fetchRandomGame(filter);
-      setRandomGame(game);
+      setRandomGame(await fetchRandomGame(filter));
     } catch (e) {
       setPickError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -66,8 +67,7 @@ export default function App() {
     setPickLoading(true);
     setPickError(null);
     try {
-      const games = await fetchGames(filter);
-      setMatchingGames(games);
+      setMatchingGames(await fetchGames(filter));
       setShowList(true);
     } catch (e) {
       setPickError(e instanceof Error ? e.message : "Something went wrong");
@@ -93,8 +93,7 @@ export default function App() {
       await createGame({ ...form, imageUrl: form.imageUrl || null });
       setAddSuccess(true);
       setForm(EMPTY_FORM);
-      fetchTypes().then(setTypes).catch(console.error);
-      fetchCategories().then(setCategories).catch(console.error);
+      refreshMeta();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -127,8 +126,8 @@ export default function App() {
           <section className="card filters">
             <h2>Filter Your Collection</h2>
             <div className="filter-grid">
-              <label>
-                Players
+              <div className="filter-item">
+                <span className="filter-label">Players</span>
                 <select
                   value={filter.playerCount ?? ""}
                   onChange={(e) => setFilter({ ...filter, playerCount: e.target.value ? +e.target.value : undefined })}
@@ -136,9 +135,10 @@ export default function App() {
                   <option value="">Any</option>
                   {PLAYER_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
-              </label>
-              <label>
-                Youngest Player Age
+              </div>
+
+              <div className="filter-item">
+                <span className="filter-label">Min Age</span>
                 <select
                   value={filter.maxAge ?? ""}
                   onChange={(e) => setFilter({ ...filter, maxAge: e.target.value ? +e.target.value : undefined })}
@@ -146,9 +146,10 @@ export default function App() {
                   <option value="">Any</option>
                   {AGE_OPTIONS.map((n) => <option key={n} value={n}>{n}+</option>)}
                 </select>
-              </label>
-              <label>
-                Max Runtime
+              </div>
+
+              <div className="filter-item">
+                <span className="filter-label">Max Runtime</span>
                 <select
                   value={filter.maxRuntime ?? ""}
                   onChange={(e) => setFilter({ ...filter, maxRuntime: e.target.value ? +e.target.value : undefined })}
@@ -156,9 +157,10 @@ export default function App() {
                   <option value="">Any</option>
                   {RUNTIME_OPTIONS.map((n) => <option key={n} value={n}>{n} min</option>)}
                 </select>
-              </label>
-              <label>
-                Type
+              </div>
+
+              <div className="filter-item">
+                <span className="filter-label">Type</span>
                 <select
                   value={filter.type ?? ""}
                   onChange={(e) => setFilter({ ...filter, type: e.target.value || undefined })}
@@ -166,18 +168,23 @@ export default function App() {
                   <option value="">Any</option>
                   {types.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
-              </label>
-              <label>
-                Category
-                <select
-                  value={filter.category ?? ""}
-                  onChange={(e) => setFilter({ ...filter, category: e.target.value || undefined })}
-                >
-                  <option value="">Any</option>
-                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
+              </div>
+
+              <div className="filter-item">
+                <span className="filter-label">
+                  Category
+                  {(filter.categories?.length ?? 0) > 0 && (
+                    <span className="filter-count">{filter.categories!.length}</span>
+                  )}
+                </span>
+                <CategoryMultiSelect
+                  options={categories}
+                  selected={filter.categories ?? []}
+                  onChange={(cats) => setFilter({ ...filter, categories: cats.length ? cats : undefined })}
+                />
+              </div>
             </div>
+
             <div className="filter-actions">
               <button className="btn-primary" onClick={handlePickGame} disabled={pickLoading}>
                 {pickLoading ? "Picking…" : "🎲 Pick Random Game"}
@@ -218,9 +225,7 @@ export default function App() {
       {tab === "add" && (
         <section className="card add-form">
           <h2>Add a Game to Your Collection</h2>
-          {addSuccess && (
-            <div className="banner success">Game added successfully!</div>
-          )}
+          {addSuccess && <div className="banner success">Game added successfully!</div>}
           {addError && <div className="banner error">{addError}</div>}
 
           <form onSubmit={handleAddGame}>
@@ -253,8 +258,8 @@ export default function App() {
                 <input type="number" required min={1} max={99} value={form.minAge} onChange={(e) => field("minAge", +e.target.value)} />
               </label>
               <label>
-                BGG Rank
-                <input type="number" min={0} value={form.bggRank} onChange={(e) => field("bggRank", +e.target.value)} placeholder="0 if unranked" />
+                BGG Rank <span className="hint">(0 if unranked)</span>
+                <input type="number" min={0} value={form.bggRank} onChange={(e) => field("bggRank", +e.target.value)} />
               </label>
 
               <label>
@@ -264,23 +269,23 @@ export default function App() {
               </label>
               <label>
                 Category *
-                <input required value={form.category} onChange={(e) => field("category", e.target.value)} placeholder="e.g. Deckbuilding, Worker Placement" list="categories-list" />
+                <input required value={form.category} onChange={(e) => field("category", e.target.value)} placeholder="e.g. Worker Placement" list="categories-list" />
                 <datalist id="categories-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
               </label>
 
               <label className="span-2">
-                Image URL
+                Image URL <span className="hint">(optional)</span>
                 <input type="url" value={form.imageUrl} onChange={(e) => field("imageUrl", e.target.value)} placeholder="https://…" />
               </label>
 
               <label className="span-2">
                 Description *
-                <textarea required rows={3} value={form.description} onChange={(e) => field("description", e.target.value)} placeholder="A short description of the game…" />
+                <textarea required rows={4} value={form.description} onChange={(e) => field("description", e.target.value)} placeholder="A short description of the game…" />
               </label>
 
               <label className="span-2 checkbox-label">
                 <input type="checkbox" checked={form.isOwned} onChange={(e) => field("isOwned", e.target.checked)} />
-                I own this game
+                I own this game (uncheck to save for your wishlist)
               </label>
             </div>
 
@@ -299,15 +304,62 @@ export default function App() {
   );
 }
 
+function CategoryMultiSelect({
+  options,
+  selected,
+  onChange,
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (cats: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function toggle(cat: string) {
+    onChange(selected.includes(cat) ? selected.filter((c) => c !== cat) : [...selected, cat]);
+  }
+
+  const label = selected.length === 0 ? "Any" : selected.length === 1 ? selected[0] : `${selected.length} selected`;
+
+  return (
+    <div className="multi-select" ref={ref}>
+      <button type="button" className={`multi-select-trigger ${open ? "open" : ""}`} onClick={() => setOpen(!open)}>
+        <span>{label}</span>
+        <span className="caret">▾</span>
+      </button>
+      {open && (
+        <div className="multi-select-dropdown">
+          {options.map((cat) => (
+            <label key={cat} className="multi-select-option">
+              <input type="checkbox" checked={selected.includes(cat)} onChange={() => toggle(cat)} />
+              {cat}
+            </label>
+          ))}
+          {selected.length > 0 && (
+            <button type="button" className="multi-select-clear" onClick={() => onChange([])}>
+              Clear selection
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GameCard({ game, featured = false }: { game: BoardGame; featured?: boolean }) {
   return (
     <div className={`game-card ${featured ? "featured" : ""}`}>
       {game.imageUrl && (
-        <img
-          src={game.imageUrl}
-          alt={game.name}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-        />
+        <img src={game.imageUrl} alt={game.name} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
       )}
       <div className="game-info">
         {game.bggRank > 0 && <div className="game-rank">BGG #{game.bggRank}</div>}

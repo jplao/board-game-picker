@@ -7,7 +7,7 @@ function buildQuery(filter: GameFilter): string {
   if (filter.playerCount) params.set("playerCount", String(filter.playerCount));
   if (filter.maxAge) params.set("maxAge", String(filter.maxAge));
   if (filter.type) params.set("type", filter.type);
-  if (filter.category) params.set("category", filter.category);
+  filter.categories?.forEach((c) => params.append("categories", c));
   if (filter.maxRuntime) params.set("maxRuntime", String(filter.maxRuntime));
   return params.toString();
 }

@@ -30,10 +30,10 @@ public class GamesController(AppDbContext db) : ControllerBase
             query = query.Where(g => g.Type == type);
         }
 
-        if (!string.IsNullOrWhiteSpace(filter.Category))
+        if (filter.Categories is { Length: > 0 })
         {
-            var category = filter.Category;
-            query = query.Where(g => g.Category == category);
+            var cats = filter.Categories;
+            query = query.Where(g => cats.Contains(g.Category));
         }
 
         if (filter.MaxRuntime.HasValue)

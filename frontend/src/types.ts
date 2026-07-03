@@ -18,6 +18,6 @@ export interface GameFilter {
   playerCount?: number;
   maxAge?: number;
   type?: string;
-  category?: string;
+  categories?: string[];
   maxRuntime?: number;
 }
