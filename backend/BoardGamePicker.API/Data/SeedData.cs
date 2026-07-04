@@ -7,7 +7,22 @@ public static class SeedData
 {
     public static async Task SeedAsync(AppDbContext context)
     {
+        // Seed admin user if none exists
+        if (!await context.Users.AnyAsync())
+        {
+            context.Users.Add(new User
+            {
+                Email = "admin@boardgamepicker.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin1234!"),
+                Role = "admin",
+            });
+            await context.SaveChangesAsync();
+        }
+
         if (await context.BoardGames.AnyAsync()) return;
+
+        // Assign all seed games to the admin user
+        var adminId = (await context.Users.FirstAsync(u => u.Role == "admin")).Id;
 
         var games = new List<BoardGame>
         {
@@ -113,6 +128,7 @@ public static class SeedData
             new() { BggRank = 100, Name = "Pandemic: In the Lab", MinPlayers = 2, MaxPlayers = 5, MinRuntime = 45, MaxRuntime = 75, MinAge = 8, ImageUrl = "https://cf.geekdo-images.com/large/img/bQ4CaJvYfxKc9-L7k1V6F02Vdrg=/fit-in/1024x1024/filters:no_upscale()/pic2116032.jpg", Description = "Expansion for Pandemic adding the lab mechanic—work together to develop cures.", Type = "Co-op", Category = "Adventure" },
         };
 
+        foreach (var g in games) g.UserId = adminId;
         await context.BoardGames.AddRangeAsync(games);
         await context.SaveChangesAsync();
     }

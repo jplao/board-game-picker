@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchTypes, fetchCategories, fetchRandomGame, fetchGames, createGame } from "./api";
-import type { BoardGame, GameFilter } from "./types";
+import {
+  fetchTypes, fetchCategories, fetchRandomGame, fetchGames, createGame,
+  login as apiLogin, register as apiRegister,
+} from "./api";
+import type { AuthUser, BoardGame, GameFilter } from "./types";
 import "./App.css";
 
 const PLAYER_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -10,21 +13,89 @@ const RUNTIME_OPTIONS = [30, 45, 60, 90, 120, 180, 240, 480];
 type Tab = "pick" | "collection" | "add";
 
 const EMPTY_FORM = {
-  name: "",
-  minPlayers: 2,
-  maxPlayers: 4,
-  minRuntime: 30,
-  maxRuntime: 60,
-  minAge: 10,
-  imageUrl: "",
-  description: "",
-  type: "",
-  category: "",
-  bggRank: 0,
-  isOwned: true,
+  name: "", minPlayers: 2, maxPlayers: 4, minRuntime: 30, maxRuntime: 60,
+  minAge: 10, imageUrl: "", description: "", type: "", category: "", bggRank: 0, isOwned: true,
 };
 
+const AUTH_KEY = "bgp_auth";
+
+function loadAuth(): AuthUser | null {
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY) ?? "null"); }
+  catch { return null; }
+}
+
+// ── Auth page ────────────────────────────────────────────────────────────────
+
+function AuthPage({ onAuth }: { onAuth: (user: AuthUser) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (mode === "register" && password !== confirm) {
+      setError("Passwords do not match");
+      return;
+    }
+    setLoading(true);
+    try {
+      const user = mode === "login"
+        ? await apiLogin(email, password)
+        : await apiRegister(email, password);
+      localStorage.setItem(AUTH_KEY, JSON.stringify(user));
+      onAuth(user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <h1>🎲 Board Game Picker</h1>
+        <p className="auth-subtitle">Your collection, one roll of the dice away</p>
+
+        <div className="auth-tabs">
+          <button className={mode === "login" ? "auth-tab active" : "auth-tab"} onClick={() => { setMode("login"); setError(null); }}>Sign In</button>
+          <button className={mode === "register" ? "auth-tab active" : "auth-tab"} onClick={() => { setMode("register"); setError(null); }}>Register</button>
+        </div>
+
+        {error && <div className="banner error">{error}</div>}
+
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label>
+            Email
+            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
+          </label>
+          <label>
+            Password
+            <input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 8 characters" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+          </label>
+          {mode === "register" && (
+            <label>
+              Confirm Password
+              <input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Repeat password" autoComplete="new-password" />
+            </label>
+          )}
+          <button type="submit" className="btn-primary" disabled={loading}>
+            {loading ? "…" : mode === "login" ? "Sign In" : "Create Account"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Main app ─────────────────────────────────────────────────────────────────
+
 export default function App() {
+  const [auth, setAuth] = useState<AuthUser | null>(loadAuth);
   const [tab, setTab] = useState<Tab>("pick");
   const [types, setTypes] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -48,29 +119,39 @@ export default function App() {
   const [addSuccess, setAddSuccess] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
 
+  function handleAuth(user: AuthUser) { setAuth(user); }
+
+  function handleLogout() {
+    localStorage.removeItem(AUTH_KEY);
+    setAuth(null);
+    setTab("pick");
+  }
+
   const refreshMeta = () => {
-    fetchTypes().then(setTypes).catch(console.error);
-    fetchCategories().then(setCategories).catch(console.error);
+    if (!auth) return;
+    fetchTypes(auth.token).then(setTypes).catch(console.error);
+    fetchCategories(auth.token).then(setCategories).catch(console.error);
   };
 
-  useEffect(refreshMeta, []);
+  useEffect(refreshMeta, [auth]);
 
   useEffect(() => {
-    if (tab !== "collection") return;
+    if (tab !== "collection" || !auth) return;
     setCollectionLoading(true);
     setCollectionError(null);
-    fetchGames({})
+    fetchGames(auth.token, {})
       .then(setCollection)
       .catch(() => setCollectionError("Failed to load collection"))
       .finally(() => setCollectionLoading(false));
-  }, [tab]);
+  }, [tab, auth]);
 
   async function handlePickGame() {
+    if (!auth) return;
     setPickLoading(true);
     setPickError(null);
     setRandomGame(null);
     try {
-      setRandomGame(await fetchRandomGame(filter));
+      setRandomGame(await fetchRandomGame(auth.token, filter));
     } catch (e) {
       setPickError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -79,10 +160,11 @@ export default function App() {
   }
 
   async function handleShowMatches() {
+    if (!auth) return;
     setPickLoading(true);
     setPickError(null);
     try {
-      setMatchingGames(await fetchGames(filter));
+      setMatchingGames(await fetchGames(auth.token, filter));
       setShowList(true);
     } catch (e) {
       setPickError(e instanceof Error ? e.message : "Something went wrong");
@@ -101,11 +183,12 @@ export default function App() {
 
   async function handleAddGame(e: React.FormEvent) {
     e.preventDefault();
+    if (!auth) return;
     setAddLoading(true);
     setAddError(null);
     setAddSuccess(false);
     try {
-      await createGame({ ...form, imageUrl: form.imageUrl || null });
+      await createGame(auth.token, { ...form, imageUrl: form.imageUrl || null });
       setAddSuccess(true);
       setForm(EMPTY_FORM);
       refreshMeta();
@@ -120,23 +203,28 @@ export default function App() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  if (!auth) return <AuthPage onAuth={handleAuth} />;
+
   return (
     <div className="app">
       <header>
-        <h1>🎲 Board Game Picker</h1>
-        <p>Your collection, one roll of the dice away</p>
+        <div className="header-content">
+          <div>
+            <h1>🎲 Board Game Picker</h1>
+            <p>Your collection, one roll of the dice away</p>
+          </div>
+          <div className="user-menu">
+            <span className="user-email">{auth.email}</span>
+            {auth.role === "admin" && <span className="role-badge">admin</span>}
+            <button className="btn-ghost btn-sm" onClick={handleLogout}>Sign Out</button>
+          </div>
+        </div>
       </header>
 
       <nav className="tabs">
-        <button className={tab === "pick" ? "tab active" : "tab"} onClick={() => setTab("pick")}>
-          🎲 Pick a Game
-        </button>
-        <button className={tab === "collection" ? "tab active" : "tab"} onClick={() => setTab("collection")}>
-          📚 My Collection
-        </button>
-        <button className={tab === "add" ? "tab active" : "tab"} onClick={() => setTab("add")}>
-          ➕ Add a Game
-        </button>
+        <button className={tab === "pick" ? "tab active" : "tab"} onClick={() => setTab("pick")}>🎲 Pick a Game</button>
+        <button className={tab === "collection" ? "tab active" : "tab"} onClick={() => setTab("collection")}>📚 My Collection</button>
+        <button className={tab === "add" ? "tab active" : "tab"} onClick={() => setTab("add")}>➕ Add a Game</button>
       </nav>
 
       {tab === "pick" && (
@@ -175,9 +263,7 @@ export default function App() {
               <div className="filter-item">
                 <span className="filter-label">
                   Category
-                  {(filter.categories?.length ?? 0) > 0 && (
-                    <span className="filter-count">{filter.categories!.length}</span>
-                  )}
+                  {(filter.categories?.length ?? 0) > 0 && <span className="filter-count">{filter.categories!.length}</span>}
                 </span>
                 <CategoryMultiSelect
                   options={categories}
@@ -187,12 +273,8 @@ export default function App() {
               </div>
             </div>
             <div className="filter-actions">
-              <button className="btn-primary" onClick={handlePickGame} disabled={pickLoading}>
-                {pickLoading ? "Picking…" : "🎲 Pick Random Game"}
-              </button>
-              <button className="btn-secondary" onClick={handleShowMatches} disabled={pickLoading}>
-                {pickLoading ? "Loading…" : "📋 Show All Matches"}
-              </button>
+              <button className="btn-primary" onClick={handlePickGame} disabled={pickLoading}>{pickLoading ? "Picking…" : "🎲 Pick Random Game"}</button>
+              <button className="btn-secondary" onClick={handleShowMatches} disabled={pickLoading}>{pickLoading ? "Loading…" : "📋 Show All Matches"}</button>
               <button className="btn-ghost" onClick={resetFilter}>Reset</button>
             </div>
           </section>
@@ -203,9 +285,7 @@ export default function App() {
             <section className="result">
               <h2>Tonight you're playing…</h2>
               <GameCard game={randomGame} featured />
-              <button className="btn-secondary" onClick={handlePickGame} disabled={pickLoading}>
-                🔀 Pick Again
-              </button>
+              <button className="btn-secondary" onClick={handlePickGame} disabled={pickLoading}>🔀 Pick Again</button>
             </section>
           )}
 
@@ -254,7 +334,6 @@ export default function App() {
                 Game Name *
                 <input type="text" required value={form.name} onChange={(e) => field("name", e.target.value)} placeholder="e.g. Catan" />
               </label>
-
               <label>
                 Min Players *
                 <input type="number" required min={1} max={99} value={form.minPlayers} onChange={(e) => field("minPlayers", +e.target.value)} />
@@ -263,7 +342,6 @@ export default function App() {
                 Max Players *
                 <input type="number" required min={1} max={99} value={form.maxPlayers} onChange={(e) => field("maxPlayers", +e.target.value)} />
               </label>
-
               <label>
                 Min Runtime (min) *
                 <input type="number" required min={1} value={form.minRuntime} onChange={(e) => field("minRuntime", +e.target.value)} />
@@ -272,7 +350,6 @@ export default function App() {
                 Max Runtime (min) *
                 <input type="number" required min={1} value={form.maxRuntime} onChange={(e) => field("maxRuntime", +e.target.value)} />
               </label>
-
               <label>
                 Min Age *
                 <input type="number" required min={1} max={99} value={form.minAge} onChange={(e) => field("minAge", +e.target.value)} />
@@ -284,49 +361,29 @@ export default function App() {
 
               <div className="span-2 field-group">
                 <span className="field-label">Type *</span>
-                <PillSelect
-                  options={types}
-                  value={form.type}
-                  onChange={(v) => field("type", v)}
-                  name="type"
-                  otherPlaceholder="Enter a new type…"
-                />
+                <PillSelect options={types} value={form.type} onChange={(v) => field("type", v)} otherPlaceholder="Enter a new type…" />
               </div>
-
               <div className="span-2 field-group">
                 <span className="field-label">Category *</span>
-                <PillSelect
-                  options={categories}
-                  value={form.category}
-                  onChange={(v) => field("category", v)}
-                  name="category"
-                  otherPlaceholder="Enter a new category…"
-                />
+                <PillSelect options={categories} value={form.category} onChange={(v) => field("category", v)} otherPlaceholder="Enter a new category…" />
               </div>
 
               <label className="span-2">
                 Image URL <span className="hint">(optional)</span>
                 <input type="url" value={form.imageUrl} onChange={(e) => field("imageUrl", e.target.value)} placeholder="https://…" />
               </label>
-
               <label className="span-2">
                 Description *
                 <textarea required rows={4} value={form.description} onChange={(e) => field("description", e.target.value)} placeholder="A short description of the game…" />
               </label>
-
               <label className="span-2 checkbox-label">
                 <input type="checkbox" checked={form.isOwned} onChange={(e) => field("isOwned", e.target.checked)} />
                 I own this game (uncheck to save for your wishlist)
               </label>
             </div>
-
             <div className="form-actions">
-              <button type="submit" className="btn-primary" disabled={addLoading}>
-                {addLoading ? "Adding…" : "➕ Add to Collection"}
-              </button>
-              <button type="button" className="btn-ghost" onClick={() => setForm(EMPTY_FORM)}>
-                Clear
-              </button>
+              <button type="submit" className="btn-primary" disabled={addLoading}>{addLoading ? "Adding…" : "➕ Add to Collection"}</button>
+              <button type="button" className="btn-ghost" onClick={() => setForm(EMPTY_FORM)}>Clear</button>
             </div>
           </form>
         </section>
@@ -335,12 +392,10 @@ export default function App() {
   );
 }
 
-// Pill-style radio select with an "Other" option
+// ── Sub-components ────────────────────────────────────────────────────────────
+
 function PillSelect({
-  options,
-  value,
-  onChange,
-  otherPlaceholder = "Enter value…",
+  options, value, onChange, otherPlaceholder = "Enter value…",
 }: {
   options: string[];
   value: string;
@@ -349,95 +404,42 @@ function PillSelect({
   otherPlaceholder?: string;
 }) {
   const [showOther, setShowOther] = useState(!options.includes(value) && value !== "");
-
-  function pick(opt: string) {
-    setShowOther(false);
-    onChange(opt);
-  }
-
-  function pickOther() {
-    setShowOther(true);
-    onChange("");
-  }
-
+  function pick(opt: string) { setShowOther(false); onChange(opt); }
+  function pickOther() { setShowOther(true); onChange(""); }
   return (
     <div className="pill-select">
       {options.map((opt) => (
-        <button
-          key={opt}
-          type="button"
-          className={`pill ${value === opt && !showOther ? "selected" : ""}`}
-          onClick={() => pick(opt)}
-        >
-          {opt}
-        </button>
+        <button key={opt} type="button" className={`pill ${value === opt && !showOther ? "selected" : ""}`} onClick={() => pick(opt)}>{opt}</button>
       ))}
-      <button
-        type="button"
-        className={`pill pill-other ${showOther ? "selected" : ""}`}
-        onClick={pickOther}
-      >
-        + Other
-      </button>
-      {showOther && (
-        <input
-          type="text"
-          className="pill-other-input"
-          placeholder={otherPlaceholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoFocus
-        />
-      )}
+      <button type="button" className={`pill pill-other ${showOther ? "selected" : ""}`} onClick={pickOther}>+ Other</button>
+      {showOther && <input type="text" className="pill-other-input" placeholder={otherPlaceholder} value={value} onChange={(e) => onChange(e.target.value)} autoFocus />}
     </div>
   );
 }
 
-function CategoryMultiSelect({
-  options,
-  selected,
-  onChange,
-}: {
-  options: string[];
-  selected: string[];
-  onChange: (cats: string[]) => void;
-}) {
+function CategoryMultiSelect({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (cats: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
+    function handleClick(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
-
-  function toggle(cat: string) {
-    onChange(selected.includes(cat) ? selected.filter((c) => c !== cat) : [...selected, cat]);
-  }
-
+  function toggle(cat: string) { onChange(selected.includes(cat) ? selected.filter((c) => c !== cat) : [...selected, cat]); }
   const label = selected.length === 0 ? "Any" : selected.length === 1 ? selected[0] : `${selected.length} selected`;
-
   return (
     <div className="multi-select" ref={ref}>
       <button type="button" className={`multi-select-trigger ${open ? "open" : ""}`} onClick={() => setOpen(!open)}>
-        <span>{label}</span>
-        <span className="caret">▾</span>
+        <span>{label}</span><span className="caret">▾</span>
       </button>
       {open && (
         <div className="multi-select-dropdown">
           {options.map((cat) => (
             <label key={cat} className="multi-select-option">
-              <input type="checkbox" checked={selected.includes(cat)} onChange={() => toggle(cat)} />
-              {cat}
+              <input type="checkbox" checked={selected.includes(cat)} onChange={() => toggle(cat)} />{cat}
             </label>
           ))}
-          {selected.length > 0 && (
-            <button type="button" className="multi-select-clear" onClick={() => onChange([])}>
-              Clear selection
-            </button>
-          )}
+          {selected.length > 0 && <button type="button" className="multi-select-clear" onClick={() => onChange([])}>Clear selection</button>}
         </div>
       )}
     </div>
@@ -447,9 +449,7 @@ function CategoryMultiSelect({
 function GameCard({ game, featured = false }: { game: BoardGame; featured?: boolean }) {
   return (
     <div className={`game-card ${featured ? "featured" : ""}`}>
-      {game.imageUrl && (
-        <img src={game.imageUrl} alt={game.name} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-      )}
+      {game.imageUrl && <img src={game.imageUrl} alt={game.name} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
       <div className="game-info">
         {game.bggRank > 0 && <div className="game-rank">BGG #{game.bggRank}</div>}
         <h3>{game.name}</h3>

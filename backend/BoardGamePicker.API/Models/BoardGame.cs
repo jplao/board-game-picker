@@ -15,4 +15,6 @@ public class BoardGame
     public string Category { get; set; } = string.Empty;
     public int BggRank { get; set; }
     public bool IsOwned { get; set; } = true;
+    public int? UserId { get; set; }
+    public User? User { get; set; }
 }

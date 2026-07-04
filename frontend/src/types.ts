@@ -21,3 +21,9 @@ export interface GameFilter {
   categories?: string[];
   maxRuntime?: number;
 }
+
+export interface AuthUser {
+  token: string;
+  email: string;
+  role: string;
+}
