@@ -29,7 +29,7 @@ export default function App() {
   const [types, setTypes] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
-  // Pick tab state
+  // Pick tab
   const [filter, setFilter] = useState<GameFilter>({});
   const [randomGame, setRandomGame] = useState<BoardGame | null>(null);
   const [matchingGames, setMatchingGames] = useState<BoardGame[]>([]);
@@ -37,12 +37,12 @@ export default function App() {
   const [pickLoading, setPickLoading] = useState(false);
   const [showList, setShowList] = useState(false);
 
-  // Collection tab state
+  // Collection tab
   const [collection, setCollection] = useState<BoardGame[]>([]);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionError, setCollectionError] = useState<string | null>(null);
 
-  // Add tab state
+  // Add tab
   const [form, setForm] = useState(EMPTY_FORM);
   const [addError, setAddError] = useState<string | null>(null);
   const [addSuccess, setAddSuccess] = useState(false);
@@ -146,48 +146,32 @@ export default function App() {
             <div className="filter-grid">
               <div className="filter-item">
                 <span className="filter-label">Players</span>
-                <select
-                  value={filter.playerCount ?? ""}
-                  onChange={(e) => setFilter({ ...filter, playerCount: e.target.value ? +e.target.value : undefined })}
-                >
+                <select value={filter.playerCount ?? ""} onChange={(e) => setFilter({ ...filter, playerCount: e.target.value ? +e.target.value : undefined })}>
                   <option value="">Any</option>
                   {PLAYER_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
-
               <div className="filter-item">
                 <span className="filter-label">Min Age</span>
-                <select
-                  value={filter.maxAge ?? ""}
-                  onChange={(e) => setFilter({ ...filter, maxAge: e.target.value ? +e.target.value : undefined })}
-                >
+                <select value={filter.maxAge ?? ""} onChange={(e) => setFilter({ ...filter, maxAge: e.target.value ? +e.target.value : undefined })}>
                   <option value="">Any</option>
                   {AGE_OPTIONS.map((n) => <option key={n} value={n}>{n}+</option>)}
                 </select>
               </div>
-
               <div className="filter-item">
                 <span className="filter-label">Max Runtime</span>
-                <select
-                  value={filter.maxRuntime ?? ""}
-                  onChange={(e) => setFilter({ ...filter, maxRuntime: e.target.value ? +e.target.value : undefined })}
-                >
+                <select value={filter.maxRuntime ?? ""} onChange={(e) => setFilter({ ...filter, maxRuntime: e.target.value ? +e.target.value : undefined })}>
                   <option value="">Any</option>
                   {RUNTIME_OPTIONS.map((n) => <option key={n} value={n}>{n} min</option>)}
                 </select>
               </div>
-
               <div className="filter-item">
                 <span className="filter-label">Type</span>
-                <select
-                  value={filter.type ?? ""}
-                  onChange={(e) => setFilter({ ...filter, type: e.target.value || undefined })}
-                >
+                <select value={filter.type ?? ""} onChange={(e) => setFilter({ ...filter, type: e.target.value || undefined })}>
                   <option value="">Any</option>
                   {types.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-
               <div className="filter-item">
                 <span className="filter-label">
                   Category
@@ -202,7 +186,6 @@ export default function App() {
                 />
               </div>
             </div>
-
             <div className="filter-actions">
               <button className="btn-primary" onClick={handlePickGame} disabled={pickLoading}>
                 {pickLoading ? "Picking…" : "🎲 Pick Random Game"}
@@ -262,7 +245,7 @@ export default function App() {
       {tab === "add" && (
         <section className="card add-form">
           <h2>Add a Game to Your Collection</h2>
-          {addSuccess && <div className="banner success">Game added successfully!</div>}
+          {addSuccess && <div className="banner success">🎉 Game added to your collection!</div>}
           {addError && <div className="banner error">{addError}</div>}
 
           <form onSubmit={handleAddGame}>
@@ -299,16 +282,27 @@ export default function App() {
                 <input type="number" min={0} value={form.bggRank} onChange={(e) => field("bggRank", +e.target.value)} />
               </label>
 
-              <label>
-                Type *
-                <input type="text" required value={form.type} onChange={(e) => field("type", e.target.value)} placeholder="e.g. Strategy, Party, Co-op" list="types-list" />
-                <datalist id="types-list">{types.map((t) => <option key={t} value={t} />)}</datalist>
-              </label>
-              <label>
-                Category *
-                <input type="text" required value={form.category} onChange={(e) => field("category", e.target.value)} placeholder="e.g. Worker Placement" list="categories-list" />
-                <datalist id="categories-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
-              </label>
+              <div className="span-2 field-group">
+                <span className="field-label">Type *</span>
+                <PillSelect
+                  options={types}
+                  value={form.type}
+                  onChange={(v) => field("type", v)}
+                  name="type"
+                  otherPlaceholder="Enter a new type…"
+                />
+              </div>
+
+              <div className="span-2 field-group">
+                <span className="field-label">Category *</span>
+                <PillSelect
+                  options={categories}
+                  value={form.category}
+                  onChange={(v) => field("category", v)}
+                  name="category"
+                  otherPlaceholder="Enter a new category…"
+                />
+              </div>
 
               <label className="span-2">
                 Image URL <span className="hint">(optional)</span>
@@ -336,6 +330,65 @@ export default function App() {
             </div>
           </form>
         </section>
+      )}
+    </div>
+  );
+}
+
+// Pill-style radio select with an "Other" option
+function PillSelect({
+  options,
+  value,
+  onChange,
+  name,
+  otherPlaceholder = "Enter value…",
+}: {
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  name: string;
+  otherPlaceholder?: string;
+}) {
+  const [showOther, setShowOther] = useState(!options.includes(value) && value !== "");
+
+  function pick(opt: string) {
+    setShowOther(false);
+    onChange(opt);
+  }
+
+  function pickOther() {
+    setShowOther(true);
+    onChange("");
+  }
+
+  return (
+    <div className="pill-select">
+      {options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          className={`pill ${value === opt && !showOther ? "selected" : ""}`}
+          onClick={() => pick(opt)}
+        >
+          {opt}
+        </button>
+      ))}
+      <button
+        type="button"
+        className={`pill pill-other ${showOther ? "selected" : ""}`}
+        onClick={pickOther}
+      >
+        + Other
+      </button>
+      {showOther && (
+        <input
+          type="text"
+          className="pill-other-input"
+          placeholder={otherPlaceholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoFocus
+        />
       )}
     </div>
   );
@@ -406,8 +459,8 @@ function GameCard({ game, featured = false }: { game: BoardGame; featured?: bool
           <span>👥 {game.minPlayers === game.maxPlayers ? game.minPlayers : `${game.minPlayers}–${game.maxPlayers}`}</span>
           <span>⏱ {game.minRuntime === game.maxRuntime ? game.minRuntime : `${game.minRuntime}–${game.maxRuntime}`} min</span>
           <span>🎂 {game.minAge}+</span>
-          <span className="tag">{game.type}</span>
-          <span className="tag">{game.category}</span>
+          <span className="tag type-tag">{game.type}</span>
+          <span className="tag cat-tag">{game.category}</span>
         </div>
       </div>
     </div>
