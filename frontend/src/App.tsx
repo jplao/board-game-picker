@@ -232,7 +232,7 @@ export default function App() {
             <div className="form-grid">
               <label className="span-2">
                 Game Name *
-                <input required value={form.name} onChange={(e) => field("name", e.target.value)} placeholder="e.g. Catan" />
+                <input type="text" required value={form.name} onChange={(e) => field("name", e.target.value)} placeholder="e.g. Catan" />
               </label>
 
               <label>
@@ -264,12 +264,12 @@ export default function App() {
 
               <label>
                 Type *
-                <input required value={form.type} onChange={(e) => field("type", e.target.value)} placeholder="e.g. Strategy, Party, Co-op" list="types-list" />
+                <input type="text" required value={form.type} onChange={(e) => field("type", e.target.value)} placeholder="e.g. Strategy, Party, Co-op" list="types-list" />
                 <datalist id="types-list">{types.map((t) => <option key={t} value={t} />)}</datalist>
               </label>
               <label>
                 Category *
-                <input required value={form.category} onChange={(e) => field("category", e.target.value)} placeholder="e.g. Worker Placement" list="categories-list" />
+                <input type="text" required value={form.category} onChange={(e) => field("category", e.target.value)} placeholder="e.g. Worker Placement" list="categories-list" />
                 <datalist id="categories-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
               </label>
 

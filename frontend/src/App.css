@@ -137,9 +137,7 @@ label {
 }
 
 select,
-input[type="text"],
-input[type="number"],
-input[type="url"],
+input:not([type="checkbox"]):not([type="submit"]):not([type="radio"]),
 textarea {
   padding: 10px 12px;
   border: 1.5px solid #d0c4b0;
