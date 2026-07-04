@@ -340,13 +340,12 @@ function PillSelect({
   options,
   value,
   onChange,
-  name,
   otherPlaceholder = "Enter value…",
 }: {
   options: string[];
   value: string;
   onChange: (v: string) => void;
-  name: string;
+  name?: string;
   otherPlaceholder?: string;
 }) {
   const [showOther, setShowOther] = useState(!options.includes(value) && value !== "");
