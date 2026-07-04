@@ -7,7 +7,7 @@ const PLAYER_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 const AGE_OPTIONS = [6, 8, 10, 12, 13, 14, 15, 18];
 const RUNTIME_OPTIONS = [30, 45, 60, 90, 120, 180, 240, 480];
 
-type Tab = "pick" | "add";
+type Tab = "pick" | "collection" | "add";
 
 const EMPTY_FORM = {
   name: "",
@@ -37,6 +37,11 @@ export default function App() {
   const [pickLoading, setPickLoading] = useState(false);
   const [showList, setShowList] = useState(false);
 
+  // Collection tab state
+  const [collection, setCollection] = useState<BoardGame[]>([]);
+  const [collectionLoading, setCollectionLoading] = useState(false);
+  const [collectionError, setCollectionError] = useState<string | null>(null);
+
   // Add tab state
   const [form, setForm] = useState(EMPTY_FORM);
   const [addError, setAddError] = useState<string | null>(null);
@@ -49,6 +54,16 @@ export default function App() {
   };
 
   useEffect(refreshMeta, []);
+
+  useEffect(() => {
+    if (tab !== "collection") return;
+    setCollectionLoading(true);
+    setCollectionError(null);
+    fetchGames({})
+      .then(setCollection)
+      .catch(() => setCollectionError("Failed to load collection"))
+      .finally(() => setCollectionLoading(false));
+  }, [tab]);
 
   async function handlePickGame() {
     setPickLoading(true);
@@ -115,6 +130,9 @@ export default function App() {
       <nav className="tabs">
         <button className={tab === "pick" ? "tab active" : "tab"} onClick={() => setTab("pick")}>
           🎲 Pick a Game
+        </button>
+        <button className={tab === "collection" ? "tab active" : "tab"} onClick={() => setTab("collection")}>
+          📚 My Collection
         </button>
         <button className={tab === "add" ? "tab active" : "tab"} onClick={() => setTab("add")}>
           ➕ Add a Game
@@ -220,6 +238,25 @@ export default function App() {
             </section>
           )}
         </>
+      )}
+
+      {tab === "collection" && (
+        <section className="card collection">
+          <div className="collection-header">
+            <h2>My Collection</h2>
+            {!collectionLoading && !collectionError && (
+              <span className="collection-count">{collection.length} game{collection.length !== 1 ? "s" : ""}</span>
+            )}
+          </div>
+          {collectionLoading && <p className="collection-status">Loading…</p>}
+          {collectionError && <div className="banner error">{collectionError}</div>}
+          {!collectionLoading && !collectionError && collection.length === 0 && (
+            <p className="collection-status">No games yet — add some from the ➕ tab!</p>
+          )}
+          <div className="game-grid">
+            {collection.map((g) => <GameCard key={g.id} game={g} />)}
+          </div>
+        </section>
       )}
 
       {tab === "add" && (
