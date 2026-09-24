@@ -63,29 +63,34 @@ public class GamesController(AppDbContext db) : ControllerBase
 
     [HttpGet]
     [Authorize]
-    public async Task<ActionResult<IEnumerable<BoardGame>>> GetGames([FromQuery] GameFilterDto filter)
+    public async Task<ActionResult<IEnumerable<GameDto>>> GetGames([FromQuery] GameFilterDto filter)
     {
         var query = ApplyFilters(ScopedGames().Where(g => g.IsOwned), filter);
-        return await query.OrderBy(g => g.BggRank).ToListAsync();
+        var games = await query.OrderBy(g => g.BggRank).ToListAsync();
+        return games.Select(GameDto.From).ToList();
     }
 
     [HttpGet("random")]
     [Authorize]
-    public async Task<ActionResult<BoardGame>> GetRandomGame([FromQuery] GameFilterDto filter)
+    public async Task<ActionResult<GameDto>> GetRandomGame([FromQuery] GameFilterDto filter)
     {
         var query = ApplyFilters(ScopedGames().Where(g => g.IsOwned), filter);
-        var count = await query.CountAsync();
-        if (count == 0) return NotFound("No games match the selected criteria.");
-        var game = await query.Skip(Random.Shared.Next(count)).FirstAsync();
-        return game;
+        // Load all matching IDs in one query, then pick one — avoids the
+        // count-then-skip race where a deletion between the two queries
+        // could cause Skip(n) to go out of bounds.
+        var ids = await query.Select(g => g.Id).ToListAsync();
+        if (ids.Count == 0) return NotFound("No games match the selected criteria.");
+        var randomId = ids[Random.Shared.Next(ids.Count)];
+        var game = await db.BoardGames.FindAsync(randomId);
+        return game is null ? NotFound("No games match the selected criteria.") : GameDto.From(game);
     }
 
     [HttpGet("{id}")]
     [Authorize]
-    public async Task<ActionResult<BoardGame>> GetGame(int id)
+    public async Task<ActionResult<GameDto>> GetGame(int id)
     {
         var game = await ScopedGames().FirstOrDefaultAsync(g => g.Id == id);
-        return game is null ? NotFound() : game;
+        return game is null ? NotFound() : GameDto.From(game);
     }
 
     [HttpGet("types")]
@@ -102,7 +107,7 @@ public class GamesController(AppDbContext db) : ControllerBase
 
     [HttpPost]
     [Authorize]
-    public async Task<ActionResult<BoardGame>> CreateGame(CreateGameDto dto)
+    public async Task<ActionResult<GameDto>> CreateGame(CreateGameDto dto)
     {
         var game = new BoardGame
         {
@@ -122,21 +127,32 @@ public class GamesController(AppDbContext db) : ControllerBase
         };
         db.BoardGames.Add(game);
         await db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetGame), new { id = game.Id }, game);
+        return CreatedAtAction(nameof(GetGame), new { id = game.Id }, GameDto.From(game));
     }
 
     [HttpPut("{id}")]
     [Authorize]
-    public async Task<IActionResult> UpdateGame(int id, BoardGame game)
+    public async Task<IActionResult> UpdateGame(int id, CreateGameDto dto)
     {
-        if (id != game.Id) return BadRequest();
+        if (id != dto.Id) return BadRequest();
         var existing = await db.BoardGames.FindAsync(id);
         if (existing is null) return NotFound();
         if (!IsAdmin && existing.UserId != CurrentUserId) return Forbid();
 
-        var originalUserId = existing.UserId; // capture before SetValues can overwrite it from the request body
-        db.Entry(existing).CurrentValues.SetValues(game);
-        existing.UserId = originalUserId; // ownership can't be changed via update, even by the owner
+        existing.Name        = dto.Name;
+        existing.MinPlayers  = dto.MinPlayers;
+        existing.MaxPlayers  = dto.MaxPlayers;
+        existing.MinRuntime  = dto.MinRuntime;
+        existing.MaxRuntime  = dto.MaxRuntime;
+        existing.MinAge      = dto.MinAge;
+        existing.ImageUrl    = dto.ImageUrl;
+        existing.Description = dto.Description;
+        existing.Type        = dto.Type;
+        existing.Category    = dto.Category;
+        existing.BggRank     = dto.BggRank;
+        existing.IsOwned     = dto.IsOwned;
+        // UserId is intentionally not updated — ownership cannot be reassigned
+
         await db.SaveChangesAsync();
         return NoContent();
     }

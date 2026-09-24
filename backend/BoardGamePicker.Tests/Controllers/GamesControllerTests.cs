@@ -38,8 +38,9 @@ public class GamesControllerTests
         return controller;
     }
 
-    private static CreateGameDto MakeDto(string name = "Test Game") => new()
+    private static CreateGameDto MakeDto(string name = "Test Game", int id = 0) => new()
     {
+        Id          = id,
         Name        = name,
         MinPlayers  = 2,
         MaxPlayers  = 4,
@@ -51,6 +52,23 @@ public class GamesControllerTests
         Category    = "Worker Placement",
         BggRank     = 1,
         IsOwned     = true,
+    };
+
+    private static CreateGameDto ToDto(BoardGame g) => new()
+    {
+        Id          = g.Id,
+        Name        = g.Name,
+        MinPlayers  = g.MinPlayers,
+        MaxPlayers  = g.MaxPlayers,
+        MinRuntime  = g.MinRuntime,
+        MaxRuntime  = g.MaxRuntime,
+        MinAge      = g.MinAge,
+        ImageUrl    = g.ImageUrl,
+        Description = g.Description,
+        Type        = g.Type,
+        Category    = g.Category,
+        BggRank     = g.BggRank,
+        IsOwned     = g.IsOwned,
     };
 
     private static BoardGame[] DefaultSeed() =>
@@ -280,7 +298,7 @@ public class GamesControllerTests
         var result = await controller.CreateGame(MakeDto("Azul"));
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
-        var returned = Assert.IsType<BoardGame>(created.Value);
+        var returned = Assert.IsType<GameDto>(created.Value);
         Assert.Equal("Azul", returned.Name);
         Assert.True(returned.Id > 0);
         Assert.Equal(1, ctx.BoardGames.Count());
@@ -294,7 +312,7 @@ public class GamesControllerTests
 
         var created = Assert.IsType<CreatedAtActionResult>(
             (await controller.CreateGame(MakeDto("Ticket to Ride"))).Result);
-        var createdGame = Assert.IsType<BoardGame>(created.Value);
+        var createdGame = Assert.IsType<GameDto>(created.Value);
 
         var game = Value(await controller.GetGame(createdGame.Id));
         Assert.Equal("Ticket to Ride", game.Name);
@@ -309,8 +327,10 @@ public class GamesControllerTests
         var result = await controller.CreateGame(MakeDto());
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
-        var game = Assert.IsType<BoardGame>(created.Value);
-        Assert.Equal(42, game.UserId);
+        var dto = Assert.IsType<GameDto>(created.Value);
+        // GameDto intentionally omits UserId — verify ownership via the DB entity
+        var stored = await ctx.BoardGames.FindAsync(dto.Id);
+        Assert.Equal(42, stored!.UserId);
     }
 
     // ── DeleteGame ───────────────────────────────────────────────────────────
@@ -342,9 +362,10 @@ public class GamesControllerTests
         var ctx = DbContextFactory.Create(DefaultSeed());
         var controller = ControllerWithContext(ctx);
         var game = await ctx.BoardGames.FindAsync(1);
-        game!.Name = "Wingspan (Updated)";
+        var dto = ToDto(game!);
+        dto.Name = "Wingspan (Updated)";
 
-        var result = await controller.UpdateGame(1, game);
+        var result = await controller.UpdateGame(1, dto);
 
         Assert.IsType<NoContentResult>(result);
         Assert.Equal("Wingspan (Updated)", (await ctx.BoardGames.FindAsync(1))!.Name);
@@ -356,10 +377,8 @@ public class GamesControllerTests
         var ctx = DbContextFactory.Create(DefaultSeed());
         var controller = ControllerWithContext(ctx);
 
-        // Build a completely separate, untracked payload with a different UserId
-        var payload = DbContextFactory.MakeGame(id: 1, name: "Wingspan (Updated)");
-        payload.UserId = 999; // attacker's id
-
+        // CreateGameDto has no UserId field — ownership cannot be sent in the payload
+        var payload = MakeDto("Wingspan (Updated)", id: 1);
         var originalUserId = (await ctx.BoardGames.FindAsync(1))!.UserId;
 
         await controller.UpdateGame(1, payload);
@@ -372,9 +391,8 @@ public class GamesControllerTests
     {
         var ctx = DbContextFactory.Create(DefaultSeed());
         var controller = ControllerWithContext(ctx);
-        var game = await ctx.BoardGames.FindAsync(1);
 
-        var result = await controller.UpdateGame(99, game!);
+        var result = await controller.UpdateGame(99, MakeDto(id: 1));
 
         Assert.IsType<BadRequestResult>(result);
     }
@@ -389,9 +407,8 @@ public class GamesControllerTests
 
         // Act as a different non-admin user (user 99)
         var controller = ControllerWithContext(ctx, userId: 99, role: "user");
-        var payload = DbContextFactory.MakeGame(id: 1, name: "Hacked");
 
-        var result = await controller.UpdateGame(1, payload);
+        var result = await controller.UpdateGame(1, MakeDto("Hacked", id: 1));
 
         Assert.IsType<ForbidResult>(result);
         Assert.Equal("Wingspan", (await ctx.BoardGames.FindAsync(1))!.Name);

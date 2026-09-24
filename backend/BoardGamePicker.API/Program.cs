@@ -52,6 +52,10 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+    // Schema is managed here with raw DDL rather than EF migrations.
+    // The migrations folder exists but was abandoned in favour of this approach
+    // to support zero-downtime ADD COLUMN IF NOT EXISTS on existing deployments.
+    // In a team setting, EF migrations would be the right choice.
     db.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""Users"" (
             ""Id""           SERIAL PRIMARY KEY,
