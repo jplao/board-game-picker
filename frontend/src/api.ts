@@ -58,11 +58,13 @@ export async function fetchRandomGame(token: string, filter: GameFilter): Promis
 
 export async function fetchTypes(token: string): Promise<string[]> {
   const res = await fetch(`${BASE}/games/types`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch game types");
   return res.json();
 }
 
 export async function fetchCategories(token: string): Promise<string[]> {
   const res = await fetch(`${BASE}/games/categories`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch game categories");
   return res.json();
 }
 

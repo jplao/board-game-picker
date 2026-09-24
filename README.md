@@ -3,13 +3,13 @@
 A full-stack app to randomly select a board game from your collection based on filters like player count, age range, and game type.
 
 ## Stack
-- **Backend**: ASP.NET Core 8 Web API + Entity Framework Core + PostgreSQL
+- **Backend**: ASP.NET Core 10 Web API + Entity Framework Core + PostgreSQL
 - **Frontend**: React + TypeScript + Vite
 
 ## Getting Started
 
 ### Prerequisites
-- .NET 8 SDK
+- .NET 10 SDK
 - Node 18+
 - PostgreSQL running locally
 
@@ -34,6 +34,13 @@ npm run dev
 ```
 
 The app runs on `http://localhost:5173`.
+
+### Running Tests
+
+```bash
+cd backend
+dotnet test
+```
 
 ## Features
 - Filter games by player count, age range, max runtime, type, and category

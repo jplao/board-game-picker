@@ -13,10 +13,12 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(GetConnectionString()));
 
-// JWT auth
+// JWT auth — JWT_SECRET must be set in production; the fallback is for local dev only
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET")
     ?? builder.Configuration["JWT_SECRET"]
-    ?? "dev-secret-change-in-production-min-32-chars!!";
+    ?? (builder.Environment.IsDevelopment()
+        ? "dev-secret-change-in-production-min-32-chars!!"
+        : throw new InvalidOperationException("JWT_SECRET environment variable is required in production."));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -35,6 +37,7 @@ builder.Services.AddAuthorization();
 // Make JWT_SECRET available via IConfiguration for AuthController
 builder.Configuration["JWT_SECRET"] = jwtSecret;
 
+// CORS: open for local dev; tighten to the frontend origin in production
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>

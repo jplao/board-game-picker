@@ -400,7 +400,6 @@ function PillSelect({
   options: string[];
   value: string;
   onChange: (v: string) => void;
-  name?: string;
   otherPlaceholder?: string;
 }) {
   const [showOther, setShowOther] = useState(!options.includes(value) && value !== "");
