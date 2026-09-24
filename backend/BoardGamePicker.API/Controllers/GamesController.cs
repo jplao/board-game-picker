@@ -102,10 +102,24 @@ public class GamesController(AppDbContext db) : ControllerBase
 
     [HttpPost]
     [Authorize]
-    public async Task<ActionResult<BoardGame>> CreateGame(BoardGame game)
+    public async Task<ActionResult<BoardGame>> CreateGame(CreateGameDto dto)
     {
-        // Always assign the game to whoever is creating it (admins included)
-        game.UserId = CurrentUserId;
+        var game = new BoardGame
+        {
+            Name        = dto.Name,
+            MinPlayers  = dto.MinPlayers,
+            MaxPlayers  = dto.MaxPlayers,
+            MinRuntime  = dto.MinRuntime,
+            MaxRuntime  = dto.MaxRuntime,
+            MinAge      = dto.MinAge,
+            ImageUrl    = dto.ImageUrl,
+            Description = dto.Description,
+            Type        = dto.Type,
+            Category    = dto.Category,
+            BggRank     = dto.BggRank,
+            IsOwned     = dto.IsOwned,
+            UserId      = CurrentUserId,
+        };
         db.BoardGames.Add(game);
         await db.SaveChangesAsync();
         return CreatedAtAction(nameof(GetGame), new { id = game.Id }, game);

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using BoardGamePicker.API.Controllers;
+using BoardGamePicker.API.Data;
 using BoardGamePicker.API.DTOs;
 using BoardGamePicker.API.Models;
 using BoardGamePicker.Tests.Helpers;
@@ -20,7 +21,7 @@ public class GamesControllerTests
     private static GamesController Controller(IEnumerable<BoardGame>? seed = null) =>
         ControllerWithContext(DbContextFactory.Create(seed));
 
-    private static GamesController ControllerWithContext(BoardGamePicker.API.Data.AppDbContext ctx)
+    private static GamesController ControllerWithContext(AppDbContext ctx, int userId = 1, string role = "admin")
     {
         var controller = new GamesController(ctx);
         controller.ControllerContext = new ControllerContext
@@ -29,13 +30,28 @@ public class GamesControllerTests
             {
                 User = new ClaimsPrincipal(new ClaimsIdentity(
                 [
-                    new Claim(ClaimTypes.NameIdentifier, "1"),
-                    new Claim(ClaimTypes.Role, "admin"),
+                    new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                    new Claim(ClaimTypes.Role, role),
                 ], "test"))
             }
         };
         return controller;
     }
+
+    private static CreateGameDto MakeDto(string name = "Test Game") => new()
+    {
+        Name        = name,
+        MinPlayers  = 2,
+        MaxPlayers  = 4,
+        MinRuntime  = 30,
+        MaxRuntime  = 60,
+        MinAge      = 10,
+        Description = "A test game",
+        Type        = "Strategy",
+        Category    = "Worker Placement",
+        BggRank     = 1,
+        IsOwned     = true,
+    };
 
     private static BoardGame[] DefaultSeed() =>
     [
@@ -260,9 +276,8 @@ public class GamesControllerTests
     {
         var ctx = DbContextFactory.Create();
         var controller = ControllerWithContext(ctx);
-        var newGame = DbContextFactory.MakeGame(name: "Azul");
 
-        var result = await controller.CreateGame(newGame);
+        var result = await controller.CreateGame(MakeDto("Azul"));
 
         var created = Assert.IsType<CreatedAtActionResult>(result.Result);
         var returned = Assert.IsType<BoardGame>(created.Value);
@@ -276,11 +291,26 @@ public class GamesControllerTests
     {
         var ctx = DbContextFactory.Create();
         var controller = ControllerWithContext(ctx);
-        var newGame = DbContextFactory.MakeGame(name: "Ticket to Ride");
-        await controller.CreateGame(newGame);
 
-        var game = Value(await controller.GetGame(newGame.Id));
+        var created = Assert.IsType<CreatedAtActionResult>(
+            (await controller.CreateGame(MakeDto("Ticket to Ride"))).Result);
+        var createdGame = Assert.IsType<BoardGame>(created.Value);
+
+        var game = Value(await controller.GetGame(createdGame.Id));
         Assert.Equal("Ticket to Ride", game.Name);
+    }
+
+    [Fact]
+    public async Task CreateGame_SetsUserIdFromToken_NotFromPayload()
+    {
+        var ctx = DbContextFactory.Create();
+        var controller = ControllerWithContext(ctx, userId: 42, role: "user");
+
+        var result = await controller.CreateGame(MakeDto());
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var game = Assert.IsType<BoardGame>(created.Value);
+        Assert.Equal(42, game.UserId);
     }
 
     // ── DeleteGame ───────────────────────────────────────────────────────────
@@ -347,5 +377,55 @@ public class GamesControllerTests
         var result = await controller.UpdateGame(99, game!);
 
         Assert.IsType<BadRequestResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateGame_WrongOwner_Returns403()
+    {
+        // Seed a game owned by user 10
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 10;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        // Act as a different non-admin user (user 99)
+        var controller = ControllerWithContext(ctx, userId: 99, role: "user");
+        var payload = DbContextFactory.MakeGame(id: 1, name: "Hacked");
+
+        var result = await controller.UpdateGame(1, payload);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Equal("Wingspan", (await ctx.BoardGames.FindAsync(1))!.Name);
+    }
+
+    // ── DeleteGame — authorization ────────────────────────────────────────────
+
+    [Fact]
+    public async Task DeleteGame_WrongOwner_Returns403()
+    {
+        // Seed a game owned by user 10
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 10;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        // Act as a different non-admin user (user 99)
+        var controller = ControllerWithContext(ctx, userId: 99, role: "user");
+
+        var result = await controller.DeleteGame(1);
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.NotNull(await ctx.BoardGames.FindAsync(1));
+    }
+
+    [Fact]
+    public async Task DeleteGame_AdminCanDeleteAnyGame()
+    {
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 10;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        var result = await ControllerWithContext(ctx, userId: 1, role: "admin").DeleteGame(1);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Null(await ctx.BoardGames.FindAsync(1));
     }
 }
