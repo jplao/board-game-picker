@@ -1,8 +1,11 @@
+using System.Security.Claims;
 using BoardGamePicker.API.Controllers;
 using BoardGamePicker.API.DTOs;
 using BoardGamePicker.API.Models;
 using BoardGamePicker.Tests.Helpers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Xunit;
 
 namespace BoardGamePicker.Tests.Controllers;
 
@@ -15,7 +18,24 @@ public class GamesControllerTests
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static GamesController Controller(IEnumerable<BoardGame>? seed = null) =>
-        new(DbContextFactory.Create(seed));
+        ControllerWithContext(DbContextFactory.Create(seed));
+
+    private static GamesController ControllerWithContext(BoardGamePicker.API.Data.AppDbContext ctx)
+    {
+        var controller = new GamesController(ctx);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(ClaimTypes.NameIdentifier, "1"),
+                    new Claim(ClaimTypes.Role, "admin"),
+                ], "test"))
+            }
+        };
+        return controller;
+    }
 
     private static BoardGame[] DefaultSeed() =>
     [
@@ -239,7 +259,7 @@ public class GamesControllerTests
     public async Task CreateGame_ValidGame_Returns201AndPersists()
     {
         var ctx = DbContextFactory.Create();
-        var controller = new GamesController(ctx);
+        var controller = ControllerWithContext(ctx);
         var newGame = DbContextFactory.MakeGame(name: "Azul");
 
         var result = await controller.CreateGame(newGame);
@@ -255,7 +275,7 @@ public class GamesControllerTests
     public async Task CreateGame_ThenGetById_ReturnsCreatedGame()
     {
         var ctx = DbContextFactory.Create();
-        var controller = new GamesController(ctx);
+        var controller = ControllerWithContext(ctx);
         var newGame = DbContextFactory.MakeGame(name: "Ticket to Ride");
         await controller.CreateGame(newGame);
 
@@ -269,7 +289,7 @@ public class GamesControllerTests
     public async Task DeleteGame_ExistingId_RemovesGameAndReturns204()
     {
         var ctx = DbContextFactory.Create(DefaultSeed());
-        var controller = new GamesController(ctx);
+        var controller = ControllerWithContext(ctx);
 
         var result = await controller.DeleteGame(1);
 
@@ -290,7 +310,7 @@ public class GamesControllerTests
     public async Task UpdateGame_ValidUpdate_Returns204AndPersistsChange()
     {
         var ctx = DbContextFactory.Create(DefaultSeed());
-        var controller = new GamesController(ctx);
+        var controller = ControllerWithContext(ctx);
         var game = await ctx.BoardGames.FindAsync(1);
         game!.Name = "Wingspan (Updated)";
 
@@ -301,10 +321,27 @@ public class GamesControllerTests
     }
 
     [Fact]
+    public async Task UpdateGame_PayloadWithDifferentUserId_PreservesOriginalOwner()
+    {
+        var ctx = DbContextFactory.Create(DefaultSeed());
+        var controller = ControllerWithContext(ctx);
+
+        // Build a completely separate, untracked payload with a different UserId
+        var payload = DbContextFactory.MakeGame(id: 1, name: "Wingspan (Updated)");
+        payload.UserId = 999; // attacker's id
+
+        var originalUserId = (await ctx.BoardGames.FindAsync(1))!.UserId;
+
+        await controller.UpdateGame(1, payload);
+
+        Assert.Equal(originalUserId, (await ctx.BoardGames.FindAsync(1))!.UserId);
+    }
+
+    [Fact]
     public async Task UpdateGame_IdMismatch_Returns400()
     {
         var ctx = DbContextFactory.Create(DefaultSeed());
-        var controller = new GamesController(ctx);
+        var controller = ControllerWithContext(ctx);
         var game = await ctx.BoardGames.FindAsync(1);
 
         var result = await controller.UpdateGame(99, game!);

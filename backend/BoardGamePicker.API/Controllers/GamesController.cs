@@ -120,8 +120,9 @@ public class GamesController(AppDbContext db) : ControllerBase
         if (existing is null) return NotFound();
         if (!IsAdmin && existing.UserId != CurrentUserId) return Forbid();
 
+        var originalUserId = existing.UserId; // capture before SetValues can overwrite it from the request body
         db.Entry(existing).CurrentValues.SetValues(game);
-        existing.UserId = existing.UserId; // preserve ownership on update
+        existing.UserId = originalUserId; // ownership can't be changed via update, even by the owner
         await db.SaveChangesAsync();
         return NoContent();
     }
