@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using BoardGamePicker.API.Controllers;
 using BoardGamePicker.API.Data;
@@ -71,6 +72,16 @@ public class GamesControllerTests
         IsOwned     = g.IsOwned,
     };
 
+    // Manually runs data-annotation + IValidatableObject validation as [ApiController]
+    // would in the real pipeline. Returns the list of validation errors.
+    private static IList<ValidationResult> Validate(CreateGameDto dto)
+    {
+        var results = new List<ValidationResult>();
+        var ctx = new ValidationContext(dto);
+        Validator.TryValidateObject(dto, ctx, results, validateAllProperties: true);
+        return results;
+    }
+
     private static BoardGame[] DefaultSeed() =>
     [
         DbContextFactory.MakeGame(id: 1, name: "Wingspan",  minPlayers: 1, maxPlayers: 5, minRuntime: 40, maxRuntime: 70,  minAge: 10, type: "Strategy",    category: "Animals",      bggRank: 10),
@@ -106,6 +117,38 @@ public class GamesControllerTests
         var games = Value(await Controller(DefaultSeed()).GetGames(new GameFilterDto())).ToList();
         Assert.Equal("Pandemic", games[0].Name);  // rank 5
         Assert.Equal("Wingspan", games[1].Name);  // rank 10
+    }
+
+    [Fact]
+    public async Task GetGames_NonAdminUser_SeesOnlyOwnGames()
+    {
+        // Seed two games, one owned by user 1, one by user 2
+        var g1 = DbContextFactory.MakeGame(id: 1, name: "Mine");
+        g1.UserId = 1;
+        var g2 = DbContextFactory.MakeGame(id: 2, name: "NotMine");
+        g2.UserId = 2;
+        var ctx = DbContextFactory.Create([g1, g2]);
+
+        var games = Value(await ControllerWithContext(ctx, userId: 1, role: "user")
+            .GetGames(new GameFilterDto()));
+
+        Assert.Single(games);
+        Assert.Equal("Mine", games.First().Name);
+    }
+
+    [Fact]
+    public async Task GetGames_AdminUser_SeesAllGames()
+    {
+        var g1 = DbContextFactory.MakeGame(id: 1, name: "UserOne");
+        g1.UserId = 1;
+        var g2 = DbContextFactory.MakeGame(id: 2, name: "UserTwo");
+        g2.UserId = 2;
+        var ctx = DbContextFactory.Create([g1, g2]);
+
+        var games = Value(await ControllerWithContext(ctx, userId: 1, role: "admin")
+            .GetGames(new GameFilterDto()));
+
+        Assert.Equal(2, games.Count());
     }
 
     // ── GetGames — individual filters ────────────────────────────────────────
@@ -245,6 +288,21 @@ public class GamesControllerTests
         Assert.IsType<NotFoundObjectResult>(result.Result);
     }
 
+    [Fact]
+    public async Task GetRandomGame_NonAdminUser_OnlyPicksFromOwnGames()
+    {
+        var mine = DbContextFactory.MakeGame(id: 1, name: "Mine");
+        mine.UserId = 1;
+        var theirs = DbContextFactory.MakeGame(id: 2, name: "NotMine");
+        theirs.UserId = 2;
+        var ctx = DbContextFactory.Create([mine, theirs]);
+
+        var game = Value(await ControllerWithContext(ctx, userId: 1, role: "user")
+            .GetRandomGame(new GameFilterDto()));
+
+        Assert.Equal("Mine", game.Name);
+    }
+
     // ── GetTypes / GetCategories ─────────────────────────────────────────────
 
     [Fact]
@@ -252,6 +310,20 @@ public class GamesControllerTests
     {
         var types = Value(await Controller(DefaultSeed()).GetTypes()).ToList();
         Assert.Equal(["Cooperative", "Party", "Strategy"], types);
+    }
+
+    [Fact]
+    public async Task GetTypes_NonAdminUser_OnlySeesOwnGamesTypes()
+    {
+        var mine = DbContextFactory.MakeGame(id: 1, type: "Party");
+        mine.UserId = 1;
+        var theirs = DbContextFactory.MakeGame(id: 2, type: "Strategy");
+        theirs.UserId = 2;
+        var ctx = DbContextFactory.Create([mine, theirs]);
+
+        var types = Value(await ControllerWithContext(ctx, userId: 1, role: "user").GetTypes());
+
+        Assert.Equal(["Party"], types.ToList());
     }
 
     [Fact]
@@ -284,6 +356,19 @@ public class GamesControllerTests
     public async Task GetGame_NonExistentId_Returns404()
     {
         var result = await Controller(DefaultSeed()).GetGame(9999);
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetGame_BelongingToOtherUser_Returns404ForNonAdmin()
+    {
+        var game = DbContextFactory.MakeGame(id: 1, name: "NotMine");
+        game.UserId = 99;
+        var ctx = DbContextFactory.Create([game]);
+
+        // user 1 (non-admin) cannot see user 99's game
+        var result = await ControllerWithContext(ctx, userId: 1, role: "user").GetGame(1);
+
         Assert.IsType<NotFoundResult>(result.Result);
     }
 
@@ -333,6 +418,110 @@ public class GamesControllerTests
         Assert.Equal(42, stored!.UserId);
     }
 
+    [Fact]
+    public async Task CreateGame_WithIsOwnedFalse_PersistsCorrectly()
+    {
+        var ctx = DbContextFactory.Create();
+        var controller = ControllerWithContext(ctx);
+        var dto = MakeDto("Wishlist Game");
+        dto.IsOwned = false;
+
+        var result = await controller.CreateGame(dto);
+
+        var created = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var returned = Assert.IsType<GameDto>(created.Value);
+        Assert.False(returned.IsOwned);
+    }
+
+    // ── CreateGameDto validation ─────────────────────────────────────────────
+
+    [Fact]
+    public void CreateGameDto_Valid_PassesValidation()
+    {
+        Assert.Empty(Validate(MakeDto()));
+    }
+
+    [Fact]
+    public void CreateGameDto_MissingName_FailsValidation()
+    {
+        var dto = MakeDto();
+        dto.Name = "";
+        var errors = Validate(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(dto.Name)));
+    }
+
+    [Fact]
+    public void CreateGameDto_MinPlayersGreaterThanMax_FailsValidation()
+    {
+        var dto = MakeDto();
+        dto.MinPlayers = 5;
+        dto.MaxPlayers = 2;
+        var errors = Validate(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(dto.MinPlayers)));
+    }
+
+    [Fact]
+    public void CreateGameDto_MinRuntimeGreaterThanMax_FailsValidation()
+    {
+        var dto = MakeDto();
+        dto.MinRuntime = 90;
+        dto.MaxRuntime = 30;
+        var errors = Validate(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(dto.MinRuntime)));
+    }
+
+    [Fact]
+    public void CreateGameDto_MinPlayersEqualToMax_PassesValidation()
+    {
+        var dto = MakeDto();
+        dto.MinPlayers = 4;
+        dto.MaxPlayers = 4;
+        Assert.Empty(Validate(dto));
+    }
+
+    [Fact]
+    public void CreateGameDto_MinPlayersZero_FailsValidation()
+    {
+        var dto = MakeDto();
+        dto.MinPlayers = 0;
+        var errors = Validate(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(dto.MinPlayers)));
+    }
+
+    [Fact]
+    public void CreateGameDto_BggRankZero_FailsValidation()
+    {
+        var dto = MakeDto();
+        dto.BggRank = 0;
+        var errors = Validate(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(dto.BggRank)));
+    }
+
+    [Fact]
+    public void CreateGameDto_InvalidImageUrl_FailsValidation()
+    {
+        var dto = MakeDto();
+        dto.ImageUrl = "not-a-url";
+        var errors = Validate(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(dto.ImageUrl)));
+    }
+
+    [Fact]
+    public void CreateGameDto_NullImageUrl_PassesValidation()
+    {
+        var dto = MakeDto();
+        dto.ImageUrl = null;
+        Assert.Empty(Validate(dto));
+    }
+
+    [Fact]
+    public void CreateGameDto_ValidImageUrl_PassesValidation()
+    {
+        var dto = MakeDto();
+        dto.ImageUrl = "https://cf.geekdo-images.com/wing.jpg";
+        Assert.Empty(Validate(dto));
+    }
+
     // ── DeleteGame ───────────────────────────────────────────────────────────
 
     [Fact]
@@ -354,77 +543,13 @@ public class GamesControllerTests
         Assert.IsType<NotFoundResult>(result);
     }
 
-    // ── UpdateGame ───────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task UpdateGame_ValidUpdate_Returns204AndPersistsChange()
-    {
-        var ctx = DbContextFactory.Create(DefaultSeed());
-        var controller = ControllerWithContext(ctx);
-        var game = await ctx.BoardGames.FindAsync(1);
-        var dto = ToDto(game!);
-        dto.Name = "Wingspan (Updated)";
-
-        var result = await controller.UpdateGame(1, dto);
-
-        Assert.IsType<NoContentResult>(result);
-        Assert.Equal("Wingspan (Updated)", (await ctx.BoardGames.FindAsync(1))!.Name);
-    }
-
-    [Fact]
-    public async Task UpdateGame_PayloadWithDifferentUserId_PreservesOriginalOwner()
-    {
-        var ctx = DbContextFactory.Create(DefaultSeed());
-        var controller = ControllerWithContext(ctx);
-
-        // CreateGameDto has no UserId field — ownership cannot be sent in the payload
-        var payload = MakeDto("Wingspan (Updated)", id: 1);
-        var originalUserId = (await ctx.BoardGames.FindAsync(1))!.UserId;
-
-        await controller.UpdateGame(1, payload);
-
-        Assert.Equal(originalUserId, (await ctx.BoardGames.FindAsync(1))!.UserId);
-    }
-
-    [Fact]
-    public async Task UpdateGame_IdMismatch_Returns400()
-    {
-        var ctx = DbContextFactory.Create(DefaultSeed());
-        var controller = ControllerWithContext(ctx);
-
-        var result = await controller.UpdateGame(99, MakeDto(id: 1));
-
-        Assert.IsType<BadRequestResult>(result);
-    }
-
-    [Fact]
-    public async Task UpdateGame_WrongOwner_Returns403()
-    {
-        // Seed a game owned by user 10
-        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
-        ownedGame.UserId = 10;
-        var ctx = DbContextFactory.Create([ownedGame]);
-
-        // Act as a different non-admin user (user 99)
-        var controller = ControllerWithContext(ctx, userId: 99, role: "user");
-
-        var result = await controller.UpdateGame(1, MakeDto("Hacked", id: 1));
-
-        Assert.IsType<ForbidResult>(result);
-        Assert.Equal("Wingspan", (await ctx.BoardGames.FindAsync(1))!.Name);
-    }
-
-    // ── DeleteGame — authorization ────────────────────────────────────────────
-
     [Fact]
     public async Task DeleteGame_WrongOwner_Returns403()
     {
-        // Seed a game owned by user 10
         var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
         ownedGame.UserId = 10;
         var ctx = DbContextFactory.Create([ownedGame]);
 
-        // Act as a different non-admin user (user 99)
         var controller = ControllerWithContext(ctx, userId: 99, role: "user");
 
         var result = await controller.DeleteGame(1);
@@ -444,5 +569,111 @@ public class GamesControllerTests
 
         Assert.IsType<NoContentResult>(result);
         Assert.Null(await ctx.BoardGames.FindAsync(1));
+    }
+
+    [Fact]
+    public async Task DeleteGame_OwnerCanDeleteOwnGame()
+    {
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 7;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        var result = await ControllerWithContext(ctx, userId: 7, role: "user").DeleteGame(1);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Null(await ctx.BoardGames.FindAsync(1));
+    }
+
+    // ── UpdateGame ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task UpdateGame_ValidUpdate_Returns204AndPersistsChange()
+    {
+        var ctx = DbContextFactory.Create(DefaultSeed());
+        var controller = ControllerWithContext(ctx);
+        var game = await ctx.BoardGames.FindAsync(1);
+        var dto = ToDto(game!);
+        dto.Name = "Wingspan (Updated)";
+
+        var result = await controller.UpdateGame(1, dto);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal("Wingspan (Updated)", (await ctx.BoardGames.FindAsync(1))!.Name);
+    }
+
+    [Fact]
+    public async Task UpdateGame_NonExistentId_Returns404()
+    {
+        var result = await Controller(DefaultSeed()).UpdateGame(9999, MakeDto(id: 9999));
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateGame_IdMismatch_Returns400()
+    {
+        var ctx = DbContextFactory.Create(DefaultSeed());
+        var controller = ControllerWithContext(ctx);
+
+        var result = await controller.UpdateGame(99, MakeDto(id: 1));
+
+        Assert.IsType<BadRequestResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateGame_PayloadWithDifferentUserId_PreservesOriginalOwner()
+    {
+        var ctx = DbContextFactory.Create(DefaultSeed());
+        var controller = ControllerWithContext(ctx);
+
+        // CreateGameDto has no UserId field — ownership cannot be sent in the payload
+        var payload = MakeDto("Wingspan (Updated)", id: 1);
+        var originalUserId = (await ctx.BoardGames.FindAsync(1))!.UserId;
+
+        await controller.UpdateGame(1, payload);
+
+        Assert.Equal(originalUserId, (await ctx.BoardGames.FindAsync(1))!.UserId);
+    }
+
+    [Fact]
+    public async Task UpdateGame_WrongOwner_Returns403()
+    {
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 10;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        var controller = ControllerWithContext(ctx, userId: 99, role: "user");
+
+        var result = await controller.UpdateGame(1, MakeDto("Hacked", id: 1));
+
+        Assert.IsType<ForbidResult>(result);
+        Assert.Equal("Wingspan", (await ctx.BoardGames.FindAsync(1))!.Name);
+    }
+
+    [Fact]
+    public async Task UpdateGame_OwnerCanUpdateOwnGame()
+    {
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 7;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        var dto = MakeDto("Wingspan (Updated)", id: 1);
+        var result = await ControllerWithContext(ctx, userId: 7, role: "user").UpdateGame(1, dto);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal("Wingspan (Updated)", (await ctx.BoardGames.FindAsync(1))!.Name);
+    }
+
+    [Fact]
+    public async Task UpdateGame_AdminCanUpdateAnyGame()
+    {
+        var ownedGame = DbContextFactory.MakeGame(id: 1, name: "Wingspan");
+        ownedGame.UserId = 10;
+        var ctx = DbContextFactory.Create([ownedGame]);
+
+        var dto = MakeDto("Admin Updated", id: 1);
+        var result = await ControllerWithContext(ctx, userId: 1, role: "admin").UpdateGame(1, dto);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal("Admin Updated", (await ctx.BoardGames.FindAsync(1))!.Name);
     }
 }
